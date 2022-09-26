@@ -1,9 +1,8 @@
 from bot_init import bot
 from telebot import types
-import lowprice
 
 
-@bot.message_handler(comands=['start'])
+@bot.message_handler(commands=['start'])
 def start(message):
     start_message = "Привет, я твой помощник в подборе отелей в самых разных городах мира!Я и команда Too Easy Travel " \
                     "сделаем все для того чтобы твой отдых был комфортным. Если ты готов тогда давай приступим к поиску." \
@@ -11,7 +10,7 @@ def start(message):
     bot.send_message(message.from_user.id, start_message, reply_markup=start_buttons())
 
 
-@bot.message_handler(comands=['help', 'find'])
+@bot.message_handler(commands=['help', 'find'])
 def search_type(message):
     if message.text == "/help":
         bot.send_message(message.from_user.id, "......")
@@ -48,5 +47,5 @@ def search_type_buttons():
     markup.add(btn1, btn2, btn3, btn4, btn5)
     return markup
 
-
+import lowprice
 bot.polling(none_stop=True, interval=0)
