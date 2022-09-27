@@ -6,29 +6,39 @@ import datetime
 
 @bot.message_handler(commands=['lowprice'])
 def parameters(message):
-    bot.send_message(message.from_user.id, 'В каком городе проводить поиск?')
     storage.set_state(message.chat.id, message.from_user.id, 'user')
     storage.reset_data(message.chat.id, message.from_user.id)
+    bot.send_message(message.from_user.id, 'В каком городе проводить поиск?')
     bot.register_next_step_handler(message, get_city)
 
 
 def get_city(message):
-    url = "https://hotels4.p.rapidapi.com/locations/v2/search"
+    try:
+        url = "https://hotels4.p.rapidapi.com/locations/v2/search"
 
-    querystring = {"query": message.text, "locale": "en_US", "currency": "USD"}
+        querystring = {"query": message.text, "locale": "en_US", "currency": "USD"}
 
-    headers = {
-        "X-RapidAPI-Key": "2c58e305b4msh54bb0caa1eb94efp174209jsn2ada4f6b93e9",
-        "X-RapidAPI-Host": "hotels4.p.rapidapi.com"
-    }
+        headers = {
+            "X-RapidAPI-Key": "2c58e305b4msh54bb0caa1eb94efp174209jsn2ada4f6b93e9",
+            "X-RapidAPI-Host": "hotels4.p.rapidapi.com"
+        }
 
-    response = requests.request("GET", url, headers=headers, params=querystring).json()
-    storage.set_data(message.chat.id, message.from_user.id, 'city', response['suggestions'][0]['entities'][0]['destinationId'])
-    bot.send_message(message.from_user.id, 'Введите дату заезда в формате ГГГГ-ММ-ДД:')
-    bot.register_next_step_handler(message, get_date)
+        response = requests.request("GET", url, headers=headers, params=querystring)
+        response_json = response.json()
+        if response_json['moresuggestions'] != 0:
+            storage.set_data(message.chat.id, message.from_user.id, 'city', response_json.get('suggestions')[0].get('entities')[0]
+                             .get('destinationId'))
+            bot.send_message(message.from_user.id, 'Введите дату заезда в формате ГГГГ-ММ-ДД:')
+            bot.register_next_step_handler(message, get_date)
+        else:
+            bot.send_message(message.from_user.id, 'Город не найден. Проверьте правильность написание названия города')
+            bot.register_next_step_handler(message, get_city)
+    except AttributeError:
+        get_city(message)
 
 
 def get_date(message):
+    max_hotel_amount = 10
     data = storage.get_data(message.chat.id, message.from_user.id)
     if data.get('first_date'):
         try:
@@ -38,7 +48,8 @@ def get_date(message):
                 raise TypeError
             storage.set_data(message.chat.id, message.from_user.id, 'second_date', message.text)
             storage.set_data(message.chat.id, message.from_user.id, 'days', (second_date - first_date).days)
-            bot.send_message(message.from_user.id, 'Какое количество отелей вас интересует?')
+            bot.send_message(message.from_user.id,
+                             f'Какое количество отелей вас интересует?(Не более {max_hotel_amount})')
             bot.register_next_step_handler(message, get_amount)
         except ValueError:
             bot.send_message(message.from_user.id, 'Проверьте правильность написания даты')
@@ -64,35 +75,41 @@ def get_date(message):
 
 def get_amount(message):
     try:
-        amount = int(message.text)
-        data = storage.get_data(message.chat.id, message.from_user.id)
-        storage.set_data(message.chat.id, message.from_user.id, 'hotel_amount', amount)
-        url = "https://hotels4.p.rapidapi.com/properties/list"
+        max_amount = 10
+        if int(message.text) <= max_amount:
+            amount = int(message.text)
+            data = storage.get_data(message.chat.id, message.from_user.id)
+            storage.set_data(message.chat.id, message.from_user.id, 'hotel_amount', amount)
+            url = "https://hotels4.p.rapidapi.com/properties/list"
 
-        querystring = {"destinationId": data['city'],
-                       "pageNumber": "1", "pageSize": amount,
-                       "checkIn": data['first_date'],
-                       "checkOut": data['second_date'],
-                       "adults1": "1", "sortOrder": "PRICE", "locale": "en_US", "currency": "USD"}
+            querystring = {"destinationId": data['city'],
+                           "pageNumber": "1", "pageSize": amount,
+                           "checkIn": data['first_date'],
+                           "checkOut": data['second_date'],
+                           "adults1": "1", "sortOrder": "PRICE", "locale": "en_US", "currency": "USD"}
 
-        headers = {
-            "X-RapidAPI-Key": "2c58e305b4msh54bb0caa1eb94efp174209jsn2ada4f6b93e9",
-            "X-RapidAPI-Host": "hotels4.p.rapidapi.com"
-        }
-        response = requests.request("GET", url, headers=headers, params=querystring).json()
-        hotels_list_data = []
-        for hotel in response['data']['body']['searchResults']['results']:
-            hotel_data = {'id': hotel['id'],
-                          'name': hotel['name'],
-                          'url': hotel['urls'] if hotel['urls'] else 'Ссылка отсутствует',
-                          'night_price': hotel['ratePlan']['price']['exactCurrent'],
-                          'all_price': data['days'] * hotel['ratePlan']['price']['exactCurrent']
-                          }
-            hotels_list_data.append(hotel_data)
+            headers = {
+                "X-RapidAPI-Key": "2c58e305b4msh54bb0caa1eb94efp174209jsn2ada4f6b93e9",
+                "X-RapidAPI-Host": "hotels4.p.rapidapi.com"
+            }
+            response = requests.request("GET", url, headers=headers, params=querystring).json()
+            hotels_list_data = []
+            for hotel in response['data']['body']['searchResults']['results']:
+                hotel_data = {'id': hotel['id'],
+                              'name': hotel['name'],
+                              'url': hotel['urls'] if hotel['urls'] else 'Ссылка отсутствует',
+                              'night_price': hotel['ratePlan']['price']['exactCurrent'],
+                              'all_price': data['days'] * hotel['ratePlan']['price']['exactCurrent']
+                              }
+                hotels_list_data.append(hotel_data)
 
-        storage.set_data(message.chat.id, message.from_user.id, 'hotels_list', hotels_list_data)
-        bot.send_message(message.from_user.id, 'Вам нужны фотографии отелей?', reply_markup=yes_no_buttons())
-        bot.register_next_step_handler(message, get_picture)
+            storage.set_data(message.chat.id, message.from_user.id, 'hotels_list', hotels_list_data)
+            bot.send_message(message.from_user.id, 'Вам нужны фотографии отелей?', reply_markup=yes_no_buttons())
+            bot.register_next_step_handler(message, get_picture)
+        else:
+            bot.send_message(message.from_user.id, f'Количество запрашиваемых отелей не должно превышать '
+                                                   f'{max_amount}')
+            bot.register_next_step_handler(message, get_amount)
     except ValueError:
         bot.send_message(message.from_user.id, 'Цифрами, пожалуйста')
         bot.register_next_step_handler(message, get_amount)
@@ -105,7 +122,7 @@ def get_picture(message):
         bot.register_next_step_handler(message, get_picture_amount)
 
     elif message.text == "Нет":
-        bot.register_next_step_handler(message, send_user_message)
+        send_user_message(message)
     else:
         bot.send_message(message.from_user.id, "Я тебя не понимаю. Выбери одну из кнопок.",
                          reply_markup=yes_no_buttons())
@@ -117,7 +134,7 @@ def get_picture_amount(message):
     try:
         if int(message.text) <= max_amount:
             pictures_amount = int(message.text)
-            bot.register_next_step_handler(message, pictures_append, *(pictures_amount,))
+            pictures_append(message, pictures_amount)
         else:
             bot.send_message(message.from_user.id, f'Количество запрашиваемых фотографий не должно превышать '
                                                    f'{max_amount}')
@@ -127,7 +144,7 @@ def get_picture_amount(message):
         bot.register_next_step_handler(message, get_picture_amount)
 
 
-def pictures_append(message, *args):
+def pictures_append(message, amount):
     for hotel in storage.get_data(message.chat.id, message.from_user.id)['hotels_list']:
         url = "https://hotels4.p.rapidapi.com/properties/get-hotel-photos"
 
@@ -140,13 +157,12 @@ def pictures_append(message, *args):
 
         response = requests.request("GET", url, headers=headers, params=querystring).json()
         picture_list = []
-        if args[0] != 0:
-            for picture in response['hotelImages'][:args[0]]:
+        if amount != 0:
+            for picture in response['hotelImages'][:amount]:
                 picture_list.append(picture['baseUrl'].format(size='y'))
         hotel['picture_list'] = picture_list
-    mes = bot.send_message(message.from_user.id, "Отели найдены!")
-    bot.register_next_step_handler(mes, send_user_message)
-
+    bot.send_message(message.from_user.id, "Отели найдены!")
+    send_user_message(message)
 
 
 def send_user_message(message):
