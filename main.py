@@ -1,19 +1,31 @@
 from bot_init import bot
 from telebot import types
-import searching_params
 from searching_params import search_type_buttons
+import sqlite3
+import searching_params
+
+
 
 @bot.message_handler(commands=['start'])
 def start(message: types.Message) -> None:
     """
-    Функиция приветствия пользователя
+    Функиция приветствия пользователя. Добавляет нового пользователя в базу данных
     :param message: Сообщение от пользователя
     :ptype: message: types.Message
     :return:
     """
+    conn = sqlite3.connect('travel_bot.db')
+    cur = conn.cursor()
+    cur.execute(""" INSERT INTO users(user_id, user_name)
+    SELECT :user_id, :user_name
+    WHERE NOT EXISTS(SELECT user_id FROM users WHERE user_id = :user_id);
+    """, {'user_id': message.from_user.id, 'user_name': message.from_user.username})
+    conn.commit()
+    conn.close()
     start_message = "Привет, я твой помощник в подборе отелей в самых разных городах мира!Я и команда Too Easy Travel " \
                     "сделаем все для того чтобы твой отдых был комфортным. Если ты готов тогда давай приступим к поиску." \
                     "Чтобы узнать что я умею напиши: Help"
+
     bot.send_message(message.from_user.id, start_message, reply_markup=start_buttons())
 
 

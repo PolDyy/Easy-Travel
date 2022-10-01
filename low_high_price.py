@@ -1,5 +1,6 @@
 from telebot import types
 from bot_init import bot, storage
+import sqlite3
 from searching_params import search_type_buttons
 import requests
 import datetime
@@ -212,6 +213,12 @@ def send_user_message(message: types.Message) -> None:
     :ptype: types.Message
     :return: None
     """
+    conn = sqlite3.connect('travel_bot.db')
+    cur = conn.cursor()
+    cur.execute(""" INSERT INTO searches(user_id)
+    VALUES(:user_id)
+    """, {"user_id": message.from_user.id})
+    conn.commit()
     data = storage.get_data(message.chat.id, message.from_user.id)
     for hotel in data['hotels_list']:
         message_to_user = f'Отель: {hotel["name"]}\n' \
@@ -227,8 +234,27 @@ def send_user_message(message: types.Message) -> None:
                 else:
                     pictures.append(types.InputMediaPhoto(media=picture))
             bot.send_media_group(message.from_user.id, media=pictures)
+            cur.execute(""" INSERT INTO messages(search_id, message, pictures)
+            SELECT search_id, :message_text, :mes_pictures
+            FROM searches
+            WHERE searches.user_id == :user_id
+            ORDER BY searches.search_id DESC
+            LIMIT 1
+            """, {"message_text": message_to_user, "mes_pictures": " ,".join(hotel['picture_list']),
+                  'user_id': message.from_user.id})
+            conn.commit()
+
         else:
+            cur.execute(""" INSERT INTO messages(search_id, message)
+            SELECT search_id, :message_text
+            FROM searches
+            WHERE searches.user_id == :user_id
+            ORDER BY searches.search_id DESC
+            LIMIT 1
+            """, {"message_text": message_to_user, 'user_id': message.from_user.id})
+            conn.commit()
             bot.send_message(message.from_user.id, message_to_user)
+    conn.close()
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     btn1 = types.KeyboardButton("/menu")
     markup.add(btn1)

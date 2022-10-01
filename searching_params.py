@@ -1,5 +1,6 @@
 from bot_init import bot, storage
 from telebot import types
+import sqlite3
 
 
 @bot.message_handler(commands=['lowprice', 'highprice', 'bestdeal'])
@@ -25,6 +26,49 @@ def parameters(message: types.Message) -> None:
         storage.set_data(message.chat.id, message.from_user.id, 'search_key', "DISTANCE_FROM_LANDMARK")
     bot.send_message(message.from_user.id, 'В каком городе проводить поиск?')
     bot.register_next_step_handler(message, get_city)
+
+@bot.message_handler(commands=['history'])
+def history(message):
+    conn = sqlite3.connect('travel_bot.db')
+    cur = conn.cursor()
+    history_list = cur.execute(""" SELECT message, pictures
+    FROM messages
+    WHERE messages.search_id IN(SELECT search_id FROM searches 
+    LEFT JOIN users ON users.user_id = searches.user_id)
+    """).fetchall()
+    len_list = cur.execute("""SELECT COUNT(search_id)
+    FROM searches
+    GROUP BY user_id
+    HAVING user_id = :user_id
+    """, {"user_id": message.from_user.id}).fetchall()
+    conn.close()
+    if history_list:
+        conn = sqlite3.connect('travel_bot.db')
+        cur = conn.cursor()
+        if int(len_list[0][0]) > 3:
+            cur.execute("""DELETE FROM searches
+             WHERE search_id = (SELECT MIN(search_id) FROM searches 
+             WHERE user_id = :user_id)""", {"user_id": message.from_user.id})
+        conn.commit()
+        conn.close()
+        for message_tuple in history_list:
+            message_text, message_pictures = message_tuple
+            if message_pictures is not None:
+                message_pictures_list = message_pictures.split(" ,")
+                pictures = []
+                for picture in message_pictures_list:
+                    if picture == message_pictures_list[0]:
+                        pictures.append(types.InputMediaPhoto(media=picture, caption=message_text))
+                    else:
+                        pictures.append(types.InputMediaPhoto(media=picture))
+                bot.send_media_group(message.from_user.id, media=pictures)
+            else:
+                bot.send_message(message.from_user.id, message_text)
+        bot.send_message(message.from_user.id, 'Продолжим?', reply_markup=search_type_buttons())
+    else:
+        bot.send_message(message.from_user.id, 'Ваша история поиска пуста', reply_markup=search_type_buttons())
+
+
 
 
 def search_type_buttons() -> types.ReplyKeyboardMarkup:
