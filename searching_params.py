@@ -1,6 +1,6 @@
 from bot_init import bot, storage
 from telebot import types
-import sqlite3
+from sql_requests import history_list
 
 
 @bot.message_handler(commands=['lowprice', 'highprice', 'bestdeal'])
@@ -24,34 +24,14 @@ def parameters(message: types.Message) -> None:
     elif message.text == "/bestdeal":
         from bestdeal import get_city
         storage.set_data(message.chat.id, message.from_user.id, 'search_key', "DISTANCE_FROM_LANDMARK")
-    bot.send_message(message.from_user.id, 'В каком городе проводить поиск?')
+    bot.send_message(message.from_user.id, 'В каком городе проводить поиск?\n (Название города на английском)')
     bot.register_next_step_handler(message, get_city)
 
 @bot.message_handler(commands=['history'])
 def history(message):
-    conn = sqlite3.connect('travel_bot.db')
-    cur = conn.cursor()
-    history_list = cur.execute(""" SELECT message, pictures
-    FROM messages
-    WHERE messages.search_id IN(SELECT search_id FROM searches 
-    LEFT JOIN users ON users.user_id = searches.user_id)
-    """).fetchall()
-    len_list = cur.execute("""SELECT COUNT(search_id)
-    FROM searches
-    GROUP BY user_id
-    HAVING user_id = :user_id
-    """, {"user_id": message.from_user.id}).fetchall()
-    conn.close()
-    if history_list:
-        conn = sqlite3.connect('travel_bot.db')
-        cur = conn.cursor()
-        if int(len_list[0][0]) > 3:
-            cur.execute("""DELETE FROM searches
-             WHERE search_id = (SELECT MIN(search_id) FROM searches 
-             WHERE user_id = :user_id)""", {"user_id": message.from_user.id})
-        conn.commit()
-        conn.close()
-        for message_tuple in history_list:
+    mes_in_history = history_list(message)
+    if mes_in_history:
+        for message_tuple in mes_in_history:
             message_text, message_pictures = message_tuple
             if message_pictures is not None:
                 message_pictures_list = message_pictures.split(" ,")
@@ -69,7 +49,15 @@ def history(message):
         bot.send_message(message.from_user.id, 'Ваша история поиска пуста', reply_markup=search_type_buttons())
 
 
-
+@bot.message_handler(commands=['help'])
+def help(message):
+    help_mes = 'Easy Travel - это бот позволяющий найти подходящие вам отели в любом городе мира!\n' \
+               'В функиционал бота входят следующие команды:\n' \
+               '1. Узнать топ самых дешёвых отелей в городе (команда /lowprice).\n'\
+               '2. Узнать топ самых дорогих отелей в городе (команда /highprice).\n'\
+               '3. Узнать топ отелей, наиболее подходящих по цене и расположению от центра (команда /bestdeal).\n'\
+               '4. Узнать историю поиска отелей (команда /history)'
+    bot.send_message(message.from_user.id, help_mes, reply_markup=search_type_buttons())
 
 def search_type_buttons() -> types.ReplyKeyboardMarkup:
     """

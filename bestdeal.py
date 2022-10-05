@@ -1,7 +1,8 @@
 from telebot import types
 from bot_init import bot, storage
-import sqlite3
+from sql_requests import search_insert, save_mes_and_pict, save_mes, history_cleansing
 from searching_params import search_type_buttons
+from telegram_bot_calendar import DetailedTelegramCalendar
 import requests
 import datetime
 import re
@@ -18,7 +19,7 @@ def get_city(message: types.Message) -> None:
 
     data = storage.get_data(message.chat.id, message.from_user.id)
     if data.get('first_date'):
-        data.pop('first_date')
+        del data['first_date']
     try:
         url = "https://hotels4.p.rapidapi.com/locations/v2/search"
 
@@ -31,7 +32,7 @@ def get_city(message: types.Message) -> None:
 
         response = requests.request("GET", url, headers=headers, params=querystring)
         response_json = response.json()
-        if response_json['moresuggestions'] != 0:
+        if response_json.get('suggestions')[0].get('entities'):
             storage.set_data(message.chat.id, message.from_user.id, 'city',
                              response_json.get('suggestions')[0].get('entities')[0]
                              .get('destinationId'))
@@ -46,44 +47,54 @@ def get_city(message: types.Message) -> None:
 
 def get_date(message: types.Message) -> None:
     """
-    Сохраняет даты введенные пользователем в storage.
-    Инициализирует получение от пользователя ценового диапазона.
-    :param message: Сообщение полученное от пользователя
+    Инициализирует клавиатуру выбора даты
+    :param message:
     :ptype: types.Message
     :return: None
     """
-    data = storage.get_data(message.chat.id, message.from_user.id)
-    if data.get('first_date'):
-        try:
-            second_date = datetime.datetime.strptime(message.text, '%Y-%m-%d')
-            first_date = datetime.datetime.strptime(data['first_date'], '%Y-%m-%d')
-            if second_date < first_date:
-                raise TypeError
-            storage.set_data(message.chat.id, message.from_user.id, 'second_date', message.text)
-            storage.set_data(message.chat.id, message.from_user.id, 'days', (second_date - first_date).days)
-            bot.send_message(message.from_user.id, f'Введите диапазон цен в долларах за ночь?(Формат ввода:20-240)')
-            bot.register_next_step_handler(message, get_price_range)
+    calendar, step = DetailedTelegramCalendar(min_date=datetime.date.today(), locale='ru').build()
+    LSTEP = {"y": "год", "m": 'месяц', "d": "день"}
+    bot.send_message(message.chat.id, f"Выберете {LSTEP[step]}", reply_markup=calendar)
 
-        except ValueError:
-            bot.send_message(message.from_user.id, 'Проверьте правильность написания даты')
-            bot.register_next_step_handler(message, get_date)
-        except TypeError:
-            bot.send_message(message.from_user.id, 'Выбранная вами дата должна быть позже текущей')
-            bot.register_next_step_handler(message, get_date)
-    else:
-        try:
-            first_date = datetime.datetime.strptime(message.text, '%Y-%m-%d')
-            if first_date < datetime.datetime.now():
-                raise TypeError
-            storage.set_data(message.chat.id, message.from_user.id, 'first_date', message.text)
-            bot.send_message(message.from_user.id, 'Выберете дату убытия в формате ГГГГ-ММ-ДД:')
-            bot.register_next_step_handler(message, get_date)
-        except ValueError:
-            bot.send_message(message.from_user.id, 'Проверьте правильность написания даты')
-            bot.register_next_step_handler(message, get_date)
-        except TypeError:
-            bot.send_message(message.from_user.id, 'Выбранная вами дата должна быть позже текущей')
-            bot.register_next_step_handler(message, get_date)
+
+@bot.callback_query_handler(func=DetailedTelegramCalendar.func())
+def cal(c: types.CallbackQuery) -> None:
+    """
+    Обрабатывает резуьтаты нажатия пользователем на клавиатуру календаря
+    :param c: Объект запроса обртатного вызова
+    :ptype: types.CallbackQuery
+    :return: None
+    """
+    try:
+        result, key, step = DetailedTelegramCalendar(min_date=datetime.date.today(), locale='ru').process(c.data)
+        LSTEP = {"y": "год", "m": 'месяц', "d": "день"}
+        data = storage.get_data(c.message.chat.id, c.from_user.id)
+        if not result and key:
+            bot.edit_message_text(f"Выберете {LSTEP[step]}:",
+                                  c.message.chat.id,
+                                  c.message.message_id,
+                                  reply_markup=key)
+        elif result:
+            bot.edit_message_text(f"Вы выбрали {result}",
+                                  c.message.chat.id, c.message.message_id)
+            if data.get('first_date'):
+                first_date = datetime.date.fromisoformat(data['first_date'])
+                if result < first_date:
+                    raise TypeError
+                storage.set_data(c.message.chat.id, c.from_user.id, 'second_date', result.strftime('%Y-%m-%d'))
+                storage.set_data(c.message.chat.id, c.from_user.id, 'days',
+                                 (result - first_date).days)
+                bot.send_message(c.from_user.id,  'Введите диапазон цен в долларах за ночь?(Формат ввода:20-240)')
+                bot.register_next_step_handler(c.message, get_price_range)
+            else:
+                storage.set_data(c.message.chat.id, c.from_user.id, 'first_date', result.strftime('%Y-%m-%d'))
+                bot.send_message(c.from_user.id, 'Выберете дату убытия:')
+                get_date(c.message)
+    except TypeError:
+        bot.send_message(c.from_user.id, 'Выбранная вами дата убытия должна быть позже даты заезда')
+        del storage.get_data(c.message.chat.id, c.from_user.id)['first_date']
+        bot.send_message(c.from_user.id, 'Выберете дату заезда:')
+        get_date(c.message)
 
 
 def get_price_range(message: types.Message) -> None:
@@ -269,12 +280,7 @@ def send_user_message(message: types.Message) -> None:
     :ptype: types.Message
     :return: None
     """
-    conn = sqlite3.connect('travel_bot.db')
-    cur = conn.cursor()
-    cur.execute(""" INSERT INTO searches(user_id)
-    VALUES(:user_id)
-    """, {"user_id": message.from_user.id})
-    conn.commit()
+    search_insert(message)
     data = storage.get_data(message.chat.id, message.from_user.id)
     for hotel in data['hotels_list']:
         message_to_user = f'Отель: {hotel["name"]}\n' \
@@ -294,42 +300,12 @@ def send_user_message(message: types.Message) -> None:
                 else:
                     pictures.append(types.InputMediaPhoto(media=picture))
             bot.send_media_group(message.from_user.id, media=pictures)
-            cur.execute(""" INSERT INTO messages(search_id, message, pictures)
-            SELECT search_id, :message_text, :mes_pictures
-            FROM searches
-            WHERE searches.user_id == :user_id
-            ORDER BY searches.search_id DESC
-            LIMIT 1
-            """, {"message_text": message_to_user, "mes_pictures": " ,".join(hotel['picture_list']),
-                  'user_id': message.from_user.id})
-            conn.commit()
-
+            save_mes_and_pict(message, message_to_user, hotel['picture_list'])
         else:
-            cur.execute(""" INSERT INTO messages(search_id, message)
-            SELECT search_id, :message_text
-            FROM searches
-            WHERE searches.user_id == :user_id
-            ORDER BY searches.search_id DESC
-            LIMIT 1
-            """, {"message_text": message_to_user, 'user_id': message.from_user.id})
-            conn.commit()
+            save_mes(message, message_to_user)
             bot.send_message(message.from_user.id, message_to_user)
-    conn.close()
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    btn1 = types.KeyboardButton("/menu")
-    markup.add(btn1)
-    bot.send_message(message.from_user.id, "Хотите продолжить поиск?", reply_markup=markup)
-    bot.register_next_step_handler(message, menu)
-
-
-def menu(message: types.Message) -> None:
-    """
-    Вызывает главное меню
-    :param message: Сообщение полученное от пользователя
-    :ptype: types.Message
-    :return: None
-    """
-    bot.send_message(message.from_user.id, "Какой параметр поиска выберете?", reply_markup=search_type_buttons())
+    history_cleansing(message)
+    bot.send_message(message.from_user.id, "Продолжим поиск?", reply_markup=search_type_buttons())
 
 
 def no_find_hotels(message: types.Message) -> None:

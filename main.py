@@ -1,8 +1,7 @@
 from bot_init import bot
 from telebot import types
 from searching_params import search_type_buttons
-import sqlite3
-import searching_params
+from sql_requests import user_insert
 
 
 
@@ -14,14 +13,7 @@ def start(message: types.Message) -> None:
     :ptype: message: types.Message
     :return:
     """
-    conn = sqlite3.connect('travel_bot.db')
-    cur = conn.cursor()
-    cur.execute(""" INSERT INTO users(user_id, user_name)
-    SELECT :user_id, :user_name
-    WHERE NOT EXISTS(SELECT user_id FROM users WHERE user_id = :user_id);
-    """, {'user_id': message.from_user.id, 'user_name': message.from_user.username})
-    conn.commit()
-    conn.close()
+    user_insert(message)
     start_message = "Привет, я твой помощник в подборе отелей в самых разных городах мира!Я и команда Too Easy Travel " \
                     "сделаем все для того чтобы твой отдых был комфортным. Если ты готов тогда давай приступим к поиску." \
                     "Чтобы узнать что я умею напиши: Help"
