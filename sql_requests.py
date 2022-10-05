@@ -1,7 +1,11 @@
 import sqlite3
+from telebot import types
 
 
-def init_db():
+def init_db() -> None:
+    """
+    Инициализирует баззу данных с 3 таблицами
+    """
     conn = sqlite3.connect('travel_bot.db')
     cur = conn.cursor()
     cur.execute("""CREATE TABLE IF NOT EXISTS users(
@@ -24,7 +28,8 @@ def init_db():
     conn.close()
 
 
-def user_insert(message):
+def user_insert(message: types.Message) -> None:
+    """ Запись нового юзера в базу данных"""
     conn = sqlite3.connect('travel_bot.db')
     cur = conn.cursor()
     cur.execute(""" INSERT INTO users(user_id, user_name)
@@ -35,7 +40,8 @@ def user_insert(message):
     conn.close()
 
 
-def search_insert(message):
+def search_insert(message: types.Message) -> None:
+    """Создание строки записи в базе данных"""
     conn = sqlite3.connect('travel_bot.db')
     cur = conn.cursor()
     cur.execute(""" INSERT INTO searches(user_id)
@@ -45,7 +51,8 @@ def search_insert(message):
     conn.close()
 
 
-def save_mes_and_pict(message, message_to_user, hotel_list):
+def save_mes_and_pict(message: types.Message, message_to_user: str, hotel_list: list) -> None:
+    """Сохранение сообщения с изображением в базу данных"""
     conn = sqlite3.connect('travel_bot.db')
     cur = conn.cursor()
     cur.execute(""" INSERT INTO messages(search_id, message, pictures)
@@ -60,7 +67,8 @@ def save_mes_and_pict(message, message_to_user, hotel_list):
     conn.close()
 
 
-def save_mes(message, message_to_user):
+def save_mes(message: types.Message, message_to_user: str) -> None:
+    """Сохранение сообщения в базу данных"""
     conn = sqlite3.connect('travel_bot.db')
     cur = conn.cursor()
     cur.execute(""" INSERT INTO messages(search_id, message)
@@ -74,7 +82,8 @@ def save_mes(message, message_to_user):
     conn.close()
 
 
-def history_cleansing(message):
+def history_cleansing(message: types.Message) -> None:
+    """Очищает базу данных до 3 последних поисков"""
     conn = sqlite3.connect('travel_bot.db')
     cur = conn.cursor()
     len_list = cur.execute("""SELECT COUNT(search_id)
@@ -90,7 +99,8 @@ def history_cleansing(message):
     conn.close()
 
 
-def history_list(message):
+def history_list(message: types.Message) -> list:
+    """Получение истории поисков"""
     conn = sqlite3.connect('travel_bot.db')
     cur = conn.cursor()
     history = cur.execute(""" SELECT message, pictures
